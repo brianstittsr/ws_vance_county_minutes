@@ -7,16 +7,35 @@ export async function GET(
   { params }: { params: { path: string[] } }
 ) {
   try {
-    const filePath = path.join(process.cwd(), 'downloads', ...params.path);
+    // Try multiple possible paths for the downloads directory
+    const possiblePaths = [
+      path.join(process.cwd(), 'downloads'),
+      path.join(process.cwd(), '..', 'downloads'),
+      path.join(process.cwd(), '.next', 'server', 'downloads'),
+      '/var/task/downloads', // Vercel serverless path
+    ];
     
-    // Security check: ensure file is within downloads directory
-    const downloadsDir = path.join(process.cwd(), 'downloads');
-    if (!filePath.startsWith(downloadsDir)) {
-      return new NextResponse('Access denied', { status: 403 });
+    let downloadsDir = '';
+    let filePath = '';
+    
+    for (const tryPath of possiblePaths) {
+      const tryFilePath = path.join(tryPath, ...params.path);
+      console.log('Trying download path:', tryFilePath);
+      if (fs.existsSync(tryFilePath)) {
+        downloadsDir = tryPath;
+        filePath = tryFilePath;
+        console.log('Found file at:', filePath);
+        break;
+      }
     }
     
-    if (!fs.existsSync(filePath)) {
+    if (!filePath) {
       return new NextResponse('File not found', { status: 404 });
+    }
+    
+    // Security check: ensure file is within downloads directory
+    if (!filePath.startsWith(downloadsDir)) {
+      return new NextResponse('Access denied', { status: 403 });
     }
     
     const fileBuffer = fs.readFileSync(filePath);
