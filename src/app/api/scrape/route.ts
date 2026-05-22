@@ -12,22 +12,76 @@ const streamPipeline = promisify(pipeline);
 const BASE_URL = 'https://www.vancecounty.org';
 const COMMISSIONERS_URL = `${BASE_URL}/departments/board-of-commissioners/`;
 const DOWNLOAD_DIR = path.join(process.cwd(), 'downloads');
+const LAST_RUN_FILE = path.join(process.cwd(), 'last-run.json');
 
 // Ensure download directory exists
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
+interface LastRunData {
+  lastRunTime: string;
+  downloadedFiles: string[];
+}
+
+function loadLastRunData(): LastRunData {
+  try {
+    if (fs.existsSync(LAST_RUN_FILE)) {
+      const data = fs.readFileSync(LAST_RUN_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error loading last run data:', error);
+  }
+  return { lastRunTime: '', downloadedFiles: [] };
+}
+
+function saveLastRunData(data: LastRunData) {
+  try {
+    fs.writeFileSync(LAST_RUN_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error saving last run data:', error);
+  }
+}
+
+function getAllDownloadedFiles(): string[] {
+  const files: string[] = [];
+  const years = fs.readdirSync(DOWNLOAD_DIR);
+  
+  for (const year of years) {
+    const yearPath = path.join(DOWNLOAD_DIR, year);
+    if (fs.statSync(yearPath).isDirectory()) {
+      const yearFiles = fs.readdirSync(yearPath);
+      for (const file of yearFiles) {
+        files.push(path.join(year, file));
+      }
+    }
+  }
+  
+  return files;
+}
+
 export async function POST() {
   try {
+    // Load last run data
+    const lastRunData = loadLastRunData();
+    const currentFiles = getAllDownloadedFiles();
+    
     // Step 1: Fetch the main page to get year links
     const yearLinks = await fetchYearLinks();
     
-    // Step 2: Process each year page
-    const results = await processYearLinks(yearLinks);
+    // Step 2: Process each year page (only download new files)
+    const results = await processYearLinks(yearLinks, lastRunData.downloadedFiles);
+    
+    // Update last run data
+    const newFiles = getAllDownloadedFiles();
+    saveLastRunData({
+      lastRunTime: new Date().toISOString(),
+      downloadedFiles: newFiles
+    });
     
     return NextResponse.json({ 
-      message: `Successfully processed ${results.length} year pages. Downloaded ${results.reduce((acc, year) => acc + year.downloadCount, 0)} files.`,
+      message: `Successfully processed ${results.length} year pages. Downloaded ${results.reduce((acc, year) => acc + year.downloadCount, 0)} new files.`,
       results 
     });
   } catch (error) {
@@ -73,7 +127,7 @@ async function fetchYearLinks() {
   }
 }
 
-async function processYearLinks(yearLinks: { year: string; url: string }[]) {
+async function processYearLinks(yearLinks: { year: string; url: string }[], existingFiles: string[] = []) {
   const results = [];
   
   for (const { year, url } of yearLinks) {
@@ -107,7 +161,7 @@ async function processYearLinks(yearLinks: { year: string; url: string }[]) {
         }
       });
       
-      // Download each minutes file
+      // Download each minutes file (only if not already downloaded)
       const downloadedFiles = [];
       for (const { title, url } of minutesLinks) {
         try {
@@ -120,6 +174,13 @@ async function processYearLinks(yearLinks: { year: string; url: string }[]) {
           
           const filename = `${safeTitle}${fileExtension}`;
           const filePath = path.join(yearDir, filename);
+          const relativePath = path.join(year, filename);
+          
+          // Skip if file already exists
+          if (existingFiles.includes(relativePath) || fs.existsSync(filePath)) {
+            console.log(`Skipping existing file: ${filename}`);
+            continue;
+          }
           
           // Download the file
           const response = await axios({

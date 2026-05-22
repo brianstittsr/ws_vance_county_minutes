@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Vance County Minutes Scraper',
-  description: 'Application to scrape and download Vance County meeting minutes',
+  title: 'Vance County Minutes Chat',
+  description: 'AI-powered chat interface for Vance County Board of Commissioners meeting minutes',
 };
 
 export default function RootLayout({

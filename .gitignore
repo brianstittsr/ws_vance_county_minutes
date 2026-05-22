@@ -1,2 +1,6 @@
 node_modules/
+last-run.json
+wiki-processed.json
+wiki/
+.env.local
 
