@@ -70,41 +70,47 @@ export async function POST(req: Request) {
     const lastMessage = messages[messages.length - 1];
     const query = lastMessage.content;
 
-    // Load wikis (cached)
-    const wikis = loadWikis();
+    // Load wikis (cached) - handle case where wiki directory doesn't exist
+    let wikis: WikiDocument[] = [];
+    let context = '';
     
-    if (wikis.length === 0) {
-      return NextResponse.json(
-        { error: 'No wiki documents found. Please generate wikis first.' },
-        { status: 500 }
-      );
+    try {
+      wikis = loadWikis();
+      
+      // Search for relevant wikis
+      const relevantWikis = searchWikis(wikis, query, 5);
+      
+      if (relevantWikis.length === 0) {
+        console.log('No relevant wikis found for query:', query);
+      }
+      
+      // Build context from relevant wikis
+      context = relevantWikis
+        .map(wiki => {
+          const content = wiki.content.slice(0, 3000);
+          return `Meeting: ${wiki.title} (${wiki.year}, ${wiki.meetingDate})\nSummary: ${wiki.summary}\nTopics: ${wiki.topics.join(', ')}\nKey Decisions: ${wiki.keyDecisions.join(', ')}\n\nContent:\n${content}`;
+        })
+        .join('\n\n---\n\n');
+    } catch (wikiError) {
+      console.error('Error loading wikis:', wikiError);
+      // Continue without wikis - will use fallback prompt
     }
 
-    // Search for relevant wikis
-    const relevantWikis = searchWikis(wikis, query, 5);
-    
-    if (relevantWikis.length === 0) {
-      // No relevant docs found, but still try to answer
-      console.log('No relevant wikis found for query:', query);
-    }
-    
-    // Build context from relevant wikis
-    const context = relevantWikis
-      .map(wiki => {
-        const content = wiki.content.slice(0, 3000); // Limit content length
-        return `Meeting: ${wiki.title} (${wiki.year}, ${wiki.meetingDate})\nSummary: ${wiki.summary}\nTopics: ${wiki.topics.join(', ')}\nKey Decisions: ${wiki.keyDecisions.join(', ')}\n\nContent:\n${content}`;
-      })
-      .join('\n\n---\n\n');
+    const systemPrompt = context 
+      ? `You are a helpful assistant that answers questions about Vance County Board of Commissioners meeting minutes from 2010-2026.
 
-    const systemPrompt = `You are a helpful assistant that answers questions about Vance County Board of Commissioners meeting minutes from 2010-2026.
-
-${context ? `Here are relevant meeting minutes to help answer the question:
+Here are relevant meeting minutes to help answer the question:
 
 ${context}
 
-Use the information above to answer the user's question. Be specific and cite which meeting and year you're referencing.` : 'No specific meeting minutes were found for this query, but you can provide general information about the Vance County Board of Commissioners based on your training data.'}
+Use the information above to answer the user's question. Be specific and cite which meeting and year you're referencing.
 
-If the answer is not in the provided context, say so clearly.`;
+If the answer is not in the provided context, say so clearly.`
+      : `You are a helpful assistant for Vance County Board of Commissioners. 
+
+Note: The meeting minutes database is currently being updated. You can provide general information about how county boards of commissioners typically operate, but specific meeting details from Vance County are not available at this moment.
+
+Please try again later or contact the county clerk's office for specific meeting information.`;
 
     const result = streamText({
       model: openai('gpt-4o'),
