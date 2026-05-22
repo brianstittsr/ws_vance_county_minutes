@@ -1,5 +1,9 @@
+import * as dotenv from 'dotenv';
 import { generateWikis, getWikiStats } from './wiki-generator.js';
 import * as path from 'path';
+
+// Load environment variables from .env.local
+dotenv.config({ path: '.env.local' });
 
 async function main() {
   console.log('📝 Vance County Minutes Wiki Generator\n');
