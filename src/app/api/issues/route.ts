@@ -20,10 +20,16 @@ interface IssuesByYear {
   issues: Issue[];
 }
 
+// Simple cache
+let cachedIssues: Issue[] | null = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 function extractIssuesFromWiki(wikiDir: string): Issue[] {
   const issues: Issue[] = [];
   
   if (!fs.existsSync(wikiDir)) {
+    console.log('Wiki directory does not exist:', wikiDir);
     return issues;
   }
   
@@ -38,68 +44,72 @@ function extractIssuesFromWiki(wikiDir: string): Issue[] {
     for (const file of files) {
       if (!file.endsWith('.md') || file === 'index.md') continue;
       
-      const filePath = path.join(yearPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
-      
-      // Extract meeting metadata
-      const titleMatch = content.match(/^# (.+)$/m);
-      const dateMatch = content.match(/\*\*Date:\*\* (.+)$/m);
-      const summaryMatch = content.match(/## Summary\n\n([\s\S]+?)(?=\n\n## |$)/);
-      
-      // Extract key decisions
-      const decisionsMatch = content.match(/## Key Decisions\n\n([\s\S]+?)(?=\n\n## |$)/);
-      const keyDecisions = decisionsMatch 
-        ? decisionsMatch[1].split('\n').filter(line => line.startsWith('- ')).map(l => l.replace('- ', ''))
-        : [];
-      
-      // Extract action items
-      const actionItemsMatch = content.match(/## Action Items\n\n([\s\S]+?)(?=\n\n## |$)/);
-      const actionItems = actionItemsMatch
-        ? actionItemsMatch[1].split('\n').filter(line => line.startsWith('- [ ]')).map(l => l.replace('- [ ] ', ''))
-        : [];
-      
-      // Extract topics as individual issues
-      const topicsMatch = content.match(/## Topics Discussed\n\n([\s\S]+?)(?=\n\n## |$)/);
-      const topics = topicsMatch
-        ? topicsMatch[1].split('\n').filter(line => line.startsWith('- ')).map(l => l.replace('- ', ''))
-        : [];
-      
-      // Create an issue entry for each topic
-      if (topics.length > 0) {
-        topics.forEach((topic, index) => {
-          const baseFileName = file.replace('.md', '');
-          issues.push({
-            id: `${year}-${baseFileName}-topic-${index}`,
-            title: topic,
-            year,
-            meetingDate: dateMatch ? dateMatch[1].trim() : '',
-            meetingFile: baseFileName.replace(/_/g, ' '),
-            summary: summaryMatch ? summaryMatch[1].slice(0, 300) + '...' : '',
-            keyDecisions: keyDecisions.slice(0, 3),
-            actionItems: actionItems.slice(0, 2),
-            pdfUrl: `/downloads/${year}/${baseFileName}.pdf`,
-            wikiUrl: `/wiki/${year}/${file}`,
+      try {
+        const filePath = path.join(yearPath, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        
+        // Extract meeting metadata
+        const titleMatch = content.match(/^# (.+)$/m);
+        const dateMatch = content.match(/\*\*Date:\*\* (.+)$/m);
+        const summaryMatch = content.match(/## Summary\n\n([\s\S]+?)(?=\n\n## |$)/);
+        
+        // Extract key decisions
+        const decisionsMatch = content.match(/## Key Decisions\n\n([\s\S]+?)(?=\n\n## |$)/);
+        const keyDecisions = decisionsMatch 
+          ? decisionsMatch[1].split('\n').filter(line => line.startsWith('- ')).map(l => l.replace('- ', ''))
+          : [];
+        
+        // Extract action items
+        const actionItemsMatch = content.match(/## Action Items\n\n([\s\S]+?)(?=\n\n## |$)/);
+        const actionItems = actionItemsMatch
+          ? actionItemsMatch[1].split('\n').filter(line => line.startsWith('- [ ]')).map(l => l.replace('- [ ] ', ''))
+          : [];
+        
+        // Extract topics as individual issues
+        const topicsMatch = content.match(/## Topics Discussed\n\n([\s\S]+?)(?=\n\n## |$)/);
+        const topics = topicsMatch
+          ? topicsMatch[1].split('\n').filter(line => line.startsWith('- ')).map(l => l.replace('- ', ''))
+          : [];
+        
+        // Create an issue entry for each topic
+        if (topics.length > 0) {
+          topics.forEach((topic, index) => {
+            const baseFileName = file.replace('.md', '');
+            issues.push({
+              id: `${year}-${baseFileName}-topic-${index}`,
+              title: topic,
+              year,
+              meetingDate: dateMatch ? dateMatch[1].trim() : '',
+              meetingFile: baseFileName.replace(/_/g, ' '),
+              summary: summaryMatch ? summaryMatch[1].slice(0, 300) + '...' : '',
+              keyDecisions: keyDecisions.slice(0, 3),
+              actionItems: actionItems.slice(0, 2),
+              pdfUrl: `/downloads/${year}/${baseFileName}.pdf`,
+              wikiUrl: `/wiki/${year}/${file}`,
+            });
           });
-        });
-      }
-      
-      // Also create issues for key decisions if they don't overlap with topics
-      if (keyDecisions.length > 0 && topics.length === 0) {
-        keyDecisions.forEach((decision, index) => {
-          const baseFileName = file.replace('.md', '');
-          issues.push({
-            id: `${year}-${baseFileName}-decision-${index}`,
-            title: decision.slice(0, 100) + (decision.length > 100 ? '...' : ''),
-            year,
-            meetingDate: dateMatch ? dateMatch[1].trim() : '',
-            meetingFile: baseFileName.replace(/_/g, ' '),
-            summary: summaryMatch ? summaryMatch[1].slice(0, 300) + '...' : '',
-            keyDecisions: [decision],
-            actionItems: actionItems.slice(0, 2),
-            pdfUrl: `/downloads/${year}/${baseFileName}.pdf`,
-            wikiUrl: `/wiki/${year}/${file}`,
+        }
+        
+        // Also create issues for key decisions if they don't overlap with topics
+        if (keyDecisions.length > 0 && topics.length === 0) {
+          keyDecisions.forEach((decision, index) => {
+            const baseFileName = file.replace('.md', '');
+            issues.push({
+              id: `${year}-${baseFileName}-decision-${index}`,
+              title: decision.slice(0, 100) + (decision.length > 100 ? '...' : ''),
+              year,
+              meetingDate: dateMatch ? dateMatch[1].trim() : '',
+              meetingFile: baseFileName.replace(/_/g, ' '),
+              summary: summaryMatch ? summaryMatch[1].slice(0, 300) + '...' : '',
+              keyDecisions: [decision],
+              actionItems: actionItems.slice(0, 2),
+              pdfUrl: `/downloads/${year}/${baseFileName}.pdf`,
+              wikiUrl: `/wiki/${year}/${file}`,
+            });
           });
-        });
+        }
+      } catch (fileError) {
+        console.error(`Error processing file ${file}:`, fileError);
       }
     }
   }
@@ -117,8 +127,15 @@ export async function GET(req: Request) {
     const year = searchParams.get('year');
     const search = searchParams.get('search');
     
-    const wikiDir = path.join(process.cwd(), 'wiki');
-    let issues = extractIssuesFromWiki(wikiDir);
+    // Check cache
+    const now = Date.now();
+    if (!cachedIssues || (now - cacheTimestamp) > CACHE_TTL) {
+      const wikiDir = path.join(process.cwd(), 'wiki');
+      cachedIssues = extractIssuesFromWiki(wikiDir);
+      cacheTimestamp = now;
+    }
+    
+    let issues = cachedIssues || [];
     
     // Filter by year if provided
     if (year) {
@@ -153,8 +170,9 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error('Error fetching issues:', error);
+    console.error('Error stack:', (error as Error).stack);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch issues' },
+      { success: false, error: 'Failed to fetch issues: ' + (error as Error).message },
       { status: 500 }
     );
   }
