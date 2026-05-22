@@ -16,10 +16,34 @@ function loadWikis(): WikiDocument[] {
     return cachedWikis;
   }
   
-  const wikiDir = path.join(process.cwd(), 'wiki');
+  // Try multiple possible paths for the wiki directory
+  const possiblePaths = [
+    path.join(process.cwd(), 'wiki'),
+    path.join(process.cwd(), '..', 'wiki'),
+    path.join(process.cwd(), '.next', 'server', 'wiki'),
+    '/var/task/wiki', // Vercel serverless path
+  ];
+  
+  let wikiDir = '';
+  for (const tryPath of possiblePaths) {
+    console.log('Trying wiki path:', tryPath, 'exists:', fs.existsSync(tryPath));
+    if (fs.existsSync(tryPath)) {
+      wikiDir = tryPath;
+      break;
+    }
+  }
+  
+  if (!wikiDir) {
+    console.error('Could not find wiki directory in any location');
+    // Return empty cache - will use fallback
+    cachedWikis = [];
+    cacheLoadTime = now;
+    return cachedWikis;
+  }
+  
   cachedWikis = processAllWikis(wikiDir);
   cacheLoadTime = now;
-  console.log(`Loaded ${cachedWikis.length} wiki documents`);
+  console.log(`Loaded ${cachedWikis.length} wiki documents from ${wikiDir}`);
   return cachedWikis;
 }
 
