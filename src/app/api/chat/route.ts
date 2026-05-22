@@ -2,51 +2,58 @@ import { NextResponse } from 'next/server';
 import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
 import { processAllWikis, WikiDocument } from '@/lib/wiki-processor';
-import { getVectorStore, VectorStore } from '@/lib/vector-store';
+import * as fs from 'fs';
 import * as path from 'path';
 
-// Cache for indexed documents
-let cachedDocuments: WikiDocument[] | null = null;
-let isIndexing = false;
-let indexPromise: Promise<void> | null = null;
+// Simple in-memory cache for wiki documents
+let cachedWikis: WikiDocument[] | null = null;
+let cacheLoadTime = 0;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-async function ensureIndex(vectorStore: VectorStore): Promise<void> {
-  // If already has chunks, we're done
-  if (vectorStore.getChunks().length > 0) {
-    return;
+function loadWikis(): WikiDocument[] {
+  const now = Date.now();
+  if (cachedWikis && (now - cacheLoadTime) < CACHE_TTL) {
+    return cachedWikis;
   }
   
-  // If indexing is in progress, wait for it
-  if (isIndexing && indexPromise) {
-    return indexPromise;
-  }
+  const wikiDir = path.join(process.cwd(), 'wiki');
+  cachedWikis = processAllWikis(wikiDir);
+  cacheLoadTime = now;
+  console.log(`Loaded ${cachedWikis.length} wiki documents`);
+  return cachedWikis;
+}
+
+function searchWikis(wikis: WikiDocument[], query: string, limit: number = 5) {
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
   
-  // Start indexing
-  isIndexing = true;
-  indexPromise = (async () => {
-    try {
-      const wikiDir = path.join(process.cwd(), 'wiki');
-      const documents = processAllWikis(wikiDir);
-      
-      if (documents.length === 0) {
-        throw new Error('No wiki documents found');
-      }
-      
-      // Index in batches to avoid timeout
-      const batchSize = 10;
-      for (let i = 0; i < documents.length; i += batchSize) {
-        const batch = documents.slice(i, i + batchSize);
-        await vectorStore.indexDocuments(batch);
-        console.log(`Indexed batch ${i / batchSize + 1}/${Math.ceil(documents.length / batchSize)}`);
-      }
-      
-      cachedDocuments = documents;
-    } finally {
-      isIndexing = false;
+  const scored = wikis.map(wiki => {
+    let score = 0;
+    const searchable = `${wiki.title} ${wiki.summary} ${wiki.topics.join(' ')} ${wiki.content}`.toLowerCase();
+    
+    // Full phrase match gets high score
+    if (searchable.includes(queryLower)) {
+      score += 10;
     }
-  })();
+    
+    // Individual word matches
+    queryWords.forEach(word => {
+      if (searchable.includes(word)) {
+        score += 1;
+        // Bonus for title matches
+        if (wiki.title.toLowerCase().includes(word)) score += 2;
+        if (wiki.topics.some(t => t.toLowerCase().includes(word))) score += 2;
+      }
+    });
+    
+    return { wiki, score };
+  });
   
-  return indexPromise;
+  return scored
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(item => item.wiki);
 }
 
 export async function POST(req: Request) {
@@ -63,40 +70,41 @@ export async function POST(req: Request) {
     const lastMessage = messages[messages.length - 1];
     const query = lastMessage.content;
 
-    // Get or initialize vector store
-    const vectorStore = await getVectorStore();
+    // Load wikis (cached)
+    const wikis = loadWikis();
     
-    // Ensure index is ready (with timeout protection)
-    await Promise.race([
-      ensureIndex(vectorStore),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Indexing timeout')), 25000)
-      )
-    ]);
-    
-    // Check if indexing failed
-    if (vectorStore.getChunks().length === 0) {
+    if (wikis.length === 0) {
       return NextResponse.json(
-        { error: 'Search index not ready. Please try again in a moment.' },
-        { status: 503 }
+        { error: 'No wiki documents found. Please generate wikis first.' },
+        { status: 500 }
       );
     }
 
-    // Search for relevant chunks
-    const relevantChunks = await vectorStore.search(query, 5);
+    // Search for relevant wikis
+    const relevantWikis = searchWikis(wikis, query, 5);
     
-    // Build context from relevant chunks
-    const context = relevantChunks
-      .map(chunk => `From ${chunk.title} (${chunk.year}):\n${chunk.content}`)
+    if (relevantWikis.length === 0) {
+      // No relevant docs found, but still try to answer
+      console.log('No relevant wikis found for query:', query);
+    }
+    
+    // Build context from relevant wikis
+    const context = relevantWikis
+      .map(wiki => {
+        const content = wiki.content.slice(0, 3000); // Limit content length
+        return `Meeting: ${wiki.title} (${wiki.year}, ${wiki.meetingDate})\nSummary: ${wiki.summary}\nTopics: ${wiki.topics.join(', ')}\nKey Decisions: ${wiki.keyDecisions.join(', ')}\n\nContent:\n${content}`;
+      })
       .join('\n\n---\n\n');
 
-    const systemPrompt = `You are a helpful assistant that answers questions about Vance County Board of Commissioners meeting minutes. 
-Use the following context from the meeting minutes to answer the user's question. If the answer is not in the context, say so.
+    const systemPrompt = `You are a helpful assistant that answers questions about Vance County Board of Commissioners meeting minutes from 2010-2026.
 
-Context:
+${context ? `Here are relevant meeting minutes to help answer the question:
+
 ${context}
 
-Answer the user's question based on the context above. Be specific and cite which meeting minutes you're referencing when possible.`;
+Use the information above to answer the user's question. Be specific and cite which meeting and year you're referencing.` : 'No specific meeting minutes were found for this query, but you can provide general information about the Vance County Board of Commissioners based on your training data.'}
+
+If the answer is not in the provided context, say so clearly.`;
 
     const result = streamText({
       model: openai('gpt-4o'),
@@ -108,13 +116,6 @@ Answer the user's question based on the context above. Be specific and cite whic
   } catch (error) {
     console.error('Error in chat API:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    if (errorMessage.includes('timeout')) {
-      return NextResponse.json(
-        { error: 'Search index is still loading. Please wait a moment and try again.' },
-        { status: 503 }
-      );
-    }
     
     return NextResponse.json(
       { error: 'Failed to process chat request: ' + errorMessage },
