@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 
 interface Message {
   id: string;
@@ -101,13 +102,21 @@ export default function Home() {
     <main className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-            Vance County Minutes Chat
-          </h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Ask questions about Board of Commissioners meeting minutes
-          </p>
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+              Vance County Minutes Chat
+            </h1>
+            <p className="text-sm text-gray-600 mt-1">
+              Ask questions about Board of Commissioners meeting minutes
+            </p>
+          </div>
+          <Link 
+            href="/issues" 
+            className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium text-sm"
+          >
+            Browse Issues
+          </Link>
         </div>
       </header>
 
