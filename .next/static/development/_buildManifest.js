@@ -1,1 +1,0 @@
-self.__BUILD_MANIFEST = (function(a){return {__rewrites:{afterFiles:[{has:a,source:"\u002Fdownloads\u002F:path*",destination:"\u002Fapi\u002Fdownload\u002F:path*"},{has:a,source:"\u002Fwiki\u002F:path*",destination:"\u002Fapi\u002Fwiki-file\u002F:path*"}],beforeFiles:[],fallback:[]},sortedPages:["\u002F_app"]}}(void 0));self.__BUILD_MANIFEST_CB && self.__BUILD_MANIFEST_CB()
