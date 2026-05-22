@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
-import { processAllMinutes } from '@/lib/pdf-processor';
+import { processAllWikis } from '@/lib/wiki-processor';
 import { getVectorStore } from '@/lib/vector-store';
 import * as path from 'path';
 
@@ -22,10 +22,18 @@ export async function POST(req: Request) {
     // Get or initialize vector store
     const vectorStore = await getVectorStore();
     
-    // Check if we need to index documents
+    // Check if we need to index documents (use wikis instead of PDFs)
     if (vectorStore.getChunks().length === 0) {
-      const downloadDir = path.join(process.cwd(), 'downloads');
-      const documents = await processAllMinutes(downloadDir);
+      const wikiDir = path.join(process.cwd(), 'wiki');
+      const documents = processAllWikis(wikiDir);
+      
+      if (documents.length === 0) {
+        return NextResponse.json(
+          { error: 'No wiki documents found. Please generate wikis first using npm run wiki' },
+          { status: 500 }
+        );
+      }
+      
       await vectorStore.indexDocuments(documents);
     }
 

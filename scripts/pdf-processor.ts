@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as pdfjsLib from 'pdfjs-dist';
 
 export interface MinuteDocument {
   id: string;
@@ -13,20 +12,18 @@ export interface MinuteDocument {
 
 export async function extractTextFromPDF(filePath: string): Promise<string> {
   try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const loadingTask = pdfjsLib.getDocument({ data: dataBuffer });
-    const pdfDocument = await loadingTask.promise;
+    // Use pdf-text-extract which works better on Windows
+    const extract = require('pdf-text-extract');
     
-    let fullText = '';
-    
-    for (let i = 1; i <= pdfDocument.numPages; i++) {
-      const page = await pdfDocument.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
-      fullText += pageText + '\n';
-    }
-    
-    return fullText;
+    return new Promise((resolve, reject) => {
+      extract(filePath, (err: any, pages: string[]) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(pages.join('\n'));
+        }
+      });
+    });
   } catch (error) {
     console.error(`Error extracting text from ${filePath}:`, error);
     throw error;

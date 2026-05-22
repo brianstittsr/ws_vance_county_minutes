@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
-import { extractTextFromPDF, MinuteDocument } from './pdf-processor';
+import { extractTextFromPDF, MinuteDocument } from './pdf-processor.js';
 
 const WIKI_DIR = path.join(process.cwd(), 'wiki');
 const WIKI_INDEX_FILE = path.join(WIKI_DIR, 'index.md');

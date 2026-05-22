@@ -1,4 +1,4 @@
-import { generateWikis, getWikiStats } from '../src/lib/wiki-generator';
+import { generateWikis, getWikiStats } from './wiki-generator.js';
 import * as path from 'path';
 
 async function main() {
